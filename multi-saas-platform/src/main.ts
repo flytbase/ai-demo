@@ -1,11 +1,13 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { AppModule } from './app.module';
 import { TenantContextService } from './modules/tenant/tenant-context.service';
 import { TenantGuard } from './common/guards/tenant.guard';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { setupSwagger } from './config/swagger.config';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { ApiVersion } from './common/versioning/api-versioning.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -25,6 +27,9 @@ async function bootstrap() {
     }),
   );
 
+  // Global exception filter for standardized API responses
+  app.useGlobalFilters(new ApiExceptionFilter());
+
   // Global tenant guard
   const tenantContextService = app.get(TenantContextService);
   app.useGlobalGuards(new TenantGuard(app.get('Reflector'), tenantContextService));
@@ -33,26 +38,20 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'X-API-Version'],
+    exposedHeaders: ['X-API-Version'],
   });
 
-  // Global prefix for API
-  app.setGlobalPrefix('api/v1');
+  // Configure API versioning
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: ApiVersion.V1,
+    prefix: 'api/v',
+  });
 
   // Swagger API documentation
   if (process.env.NODE_ENV !== 'production') {
-    const config = new DocumentBuilder()
-      .setTitle('Multi-Tenant SaaS API')
-      .setDescription('API documentation for multi-tenant SaaS platform')
-      .setVersion('1.0')
-      .addTag('auth', 'Authentication endpoints')
-      .addTag('users', 'User management endpoints')
-      .addTag('tenants', 'Tenant management endpoints')
-      .addBearerAuth()
-      .build();
-    
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    setupSwagger(app);
   }
 
   // Start the application
@@ -60,6 +59,8 @@ async function bootstrap() {
   await app.listen(port, () => {
     console.log(`Application running on port ${port}`);
     console.log(`API documentation available at http://localhost:${port}/api/docs`);
+    console.log(`V1 API documentation: http://localhost:${port}/api/v1/docs`);
+    console.log(`V2 API documentation: http://localhost:${port}/api/v2/docs`);
   });
 }
 bootstrap();

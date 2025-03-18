@@ -4,9 +4,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantModule } from './modules/tenant/tenant.module';
+import { TenantContextModule } from './modules/tenant/tenant-context.module';
 import { UserModule } from './modules/user/user.module';
 import { DatabaseModule } from './database/database.module';
 import { TenantContextMiddleware } from './middleware/tenant-context.middleware';
+import { VersionModule } from './common/versioning/version.module';
+import { VersionMiddleware } from './common/versioning/version.middleware';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 import redisConfig from './config/redis.config';
@@ -20,8 +23,14 @@ import redisConfig from './config/redis.config';
       load: [databaseConfig, jwtConfig, redisConfig],
     }),
 
-    // Database module with multi-tenant support
+    // Tenant Context module (needs to be loaded first)
+    TenantContextModule,
+
+    // Import database module
     DatabaseModule,
+
+    // API Versioning module
+    VersionModule,
 
     // Application modules
     AuthModule,
@@ -34,15 +43,24 @@ import redisConfig from './config/redis.config';
 export class AppModule implements NestModule {
   /**
    * Configure middleware
-   * Apply TenantContextMiddleware to all routes except public endpoints
+   * Apply middleware in the correct order:
+   * 1. VersionMiddleware - to handle API versioning
+   * 2. TenantContextMiddleware - to establish tenant context
    */
   configure(consumer: MiddlewareConsumer) {
+    // Add versioning middleware to all routes
+    consumer
+      .apply(VersionMiddleware)
+      .forRoutes('*');
+      
+    // Apply tenant context middleware except for public endpoints
     consumer
       .apply(TenantContextMiddleware)
       .exclude(
-        { path: 'api/v1/auth/login', method: RequestMethod.POST },
-        { path: 'api/v1/auth/register', method: RequestMethod.POST },
-        { path: 'api/v1/health', method: RequestMethod.GET },
+        { path: 'api/v(1|2)/auth/login', method: RequestMethod.POST },
+        { path: 'api/v(1|2)/auth/register', method: RequestMethod.POST },
+        { path: 'api/v(1|2)/version', method: RequestMethod.GET },
+        { path: 'api/v(1|2)/health', method: RequestMethod.GET },
       )
       .forRoutes('*');
   }
